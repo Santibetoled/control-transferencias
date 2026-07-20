@@ -37,12 +37,12 @@ async function compressImage(file, maxW = 700, quality = 0.5) {
 /* ── Progress Bar ── */
 function PBar({ pct, h = 18 }) {
   const p = Math.min(pct, 100);
-  const color = p >= 100 ? "#16a34a" : p >= 50 ? "#d97706" : "#dc2626";
+  const color = pct > 100 ? "#dc2626" : pct >= 100 ? "#16a34a" : pct >= 50 ? "#d97706" : "#dc2626";
   return (
     <div style={{ width: "100%", background: "#e5e7eb", borderRadius: 8, overflow: "hidden", height: h, position: "relative" }}>
       <div style={{ width: p + "%", background: color, height: "100%", borderRadius: 8, transition: "width 0.4s" }} />
       <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: h > 22 ? 14 : 11, fontWeight: 700, color: p > 40 ? "#fff" : "#374151" }}>
-        {Math.round(p)}%
+        {Math.round(pct)}%
       </span>
     </div>
   );
@@ -52,6 +52,8 @@ function PBar({ pct, h = 18 }) {
 function buildReport(cuenta, transfers) {
   var total = transfers.reduce(function (s, t) { return s + Number(t.monto); }, 0);
   var cantComp = transfers.filter(function (t) { return t.comprobante; }).length;
+  var excedido = total > Number(cuenta.monto);
+  var exceso = total - Number(cuenta.monto);
 
   var comprobantes = transfers.filter(function (t) { return t.comprobante; }).map(function (t, i) {
     return '<div style="page-break-inside:avoid;margin:16px 0;border:2px solid #cbd5e1;border-radius:10px;overflow:hidden;">'
@@ -95,10 +97,13 @@ function buildReport(cuenta, transfers) {
     + '<div class="resumen"><p>La cuenta <strong>' + cuenta.nombre.toUpperCase() + '</strong> por un valor de <strong>' + fmtMoney(cuenta.monto) + '</strong><br/>'
     + 'fue cubierta a trav\u00e9s de <strong>' + transfers.length + ' transferencia' + (transfers.length !== 1 ? 's' : '') + '</strong>'
     + ' que suman <strong>' + fmtMoney(total) + '</strong></p></div>'
+    + (excedido ? '<div style="background:#fef2f2;border:2px solid #fca5a5;border-radius:10px;padding:16px;margin-bottom:20px;text-align:center;"><p style="margin:0;font-size:15px;color:#991b1b;font-weight:700;">\u26a0\ufe0f EXCEDIDO EN ' + fmtMoney(exceso) + '</p></div>' : '')
     + '<div class="stats">'
     + '<div class="stat"><div class="label">Monto Objetivo</div><div class="value">' + fmtMoney(cuenta.monto) + '</div></div>'
     + '<div class="stat"><div class="label">Total Cubierto</div><div class="value">' + fmtMoney(total) + '</div></div>'
-    + '<div class="stat"><div class="label">Comprobantes</div><div class="value">' + cantComp + '</div></div></div>'
+    + '<div class="stat"><div class="label">Comprobantes</div><div class="value">' + cantComp + '</div></div>'
+    + (excedido ? '<div class="stat"><div class="label">Excedente</div><div class="value" style="color:#dc2626">' + fmtMoney(exceso) + '</div></div>' : '')
+    + '</div>'
     + '<h2>Detalle de Transferencias</h2>'
     + '<table><thead><tr><th>#</th><th>Fecha</th><th>Hora</th><th>Cliente</th><th>Monto</th><th>Chofer</th></tr></thead><tbody>'
     + transfers.map(function (t, i) { return '<tr><td>' + (i + 1) + '</td><td>' + fmtDate(t.fecha) + '</td><td>' + (t.hora || "-") + '</td><td>' + (t.cliente || "-") + '</td><td>' + fmtMoney(t.monto) + '</td><td>' + (t.chofer || "-") + '</td></tr>'; }).join("")
@@ -107,6 +112,74 @@ function buildReport(cuenta, transfers) {
     + '<h2>Comprobantes (' + cantComp + ')</h2>'
     + (comprobantes || '<p style="color:#94a3b8;text-align:center;">Sin comprobantes cargados.</p>')
     + '<div class="footer">Generado: ' + new Date().toLocaleString("es-AR") + ' \u2014 Control de Transferencias</div>'
+    + '</body></html>';
+}
+
+
+/* ── Provider Report ── */
+function buildProviderReport(cuenta, transfers) {
+  var total = transfers.reduce(function (s, t) { return s + Number(t.monto); }, 0);
+  var cantComp = transfers.filter(function (t) { return t.comprobante; }).length;
+  var excedido = total > Number(cuenta.monto);
+  var exceso = total - Number(cuenta.monto);
+
+  var lista = transfers.map(function (t, i) {
+    return '<tr><td style="font-weight:600;">' + (i + 1) + '</td><td>' + fmtDate(t.fecha) + ' ' + (t.hora || "-") + '</td><td style="font-weight:700;">' + fmtMoney(t.monto) + '</td></tr>';
+  }).join("");
+
+  var comprobantes = transfers.filter(function (t) { return t.comprobante; }).map(function (t, i) {
+    return '<div style="page-break-inside:avoid;margin:14px 0;border:2px solid #ddd;border-radius:10px;overflow:hidden;">'
+      + '<div style="background:#f8f8f8;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e5e5e5;">'
+      + '<span style="font-weight:700;font-size:13px;">COMPROBANTE ' + (i + 1) + ' de ' + cantComp + '</span>'
+      + '<span style="font-weight:700;font-size:14px;">' + fmtMoney(t.monto) + '</span></div>'
+      + '<div style="padding:6px 14px 14px;"><img src="' + t.comprobante + '" style="width:100%;border-radius:6px;" /></div>'
+      + '</div>';
+  }).join("");
+
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comprobantes - ' + cuenta.nombre + '</title>'
+    + '<style>'
+    + '*{box-sizing:border-box}'
+    + 'body{font-family:Arial,sans-serif;max-width:780px;margin:0 auto;padding:24px;color:#222}'
+    + '.header{background:#1a1a1a;color:#fff;padding:24px;border-radius:12px;margin-bottom:20px}'
+    + '.header h1{margin:0;font-size:20px}.header p{margin:6px 0 0;font-size:13px;opacity:.9}'
+    + '.resumen{background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:20px;margin-bottom:20px;text-align:center}'
+    + '.resumen p{margin:0;font-size:15px;color:#166534;line-height:1.6}.resumen strong{font-size:17px}'
+    + '.excedido-box{background:#fef2f2;border:2px solid #fca5a5;border-radius:10px;padding:16px;margin-bottom:20px;text-align:center}'
+    + '.excedido-box p{margin:0;font-size:15px;color:#991b1b;line-height:1.6;font-weight:700}'
+    + '.stats{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}'
+    + '.stat{flex:1;min-width:110px;background:#f8f8f8;border:1px solid #e5e5e5;padding:14px;border-radius:8px;text-align:center}'
+    + '.stat .label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:600}'
+    + '.stat .value{font-size:22px;font-weight:700;color:#222;margin-top:3px}'
+    + '.stat .value.red{color:#dc2626}'
+    + 'h2{color:#222;border-bottom:2px solid #e5e5e5;padding-bottom:6px;font-size:16px;margin-top:28px}'
+    + 'table{width:100%;border-collapse:collapse;margin-bottom:20px}'
+    + 'th{background:#f5f5f5;text-align:left;padding:9px 10px;font-size:11px;text-transform:uppercase;color:#888}'
+    + 'td{padding:9px 10px;border-bottom:1px solid #eee;font-size:13px}'
+    + '.total-row{background:#f5f5f5;font-weight:700}'
+    + '.footer{text-align:center;color:#aaa;font-size:10px;margin-top:28px;padding-top:14px;border-top:1px solid #eee}'
+    + '@media print{body{padding:12px}.no-print{display:none!important}}'
+    + '</style></head><body>'
+    + '<div class="no-print" style="text-align:right;margin-bottom:16px;"><button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;">Imprimir / Guardar PDF</button></div>'
+    + '<div class="header"><h1>COMPROBANTES DE PAGO</h1>'
+    + '<p>' + cuenta.nombre + (cuenta.alias ? ' \u2014 Alias: ' + cuenta.alias : '') + '</p></div>'
+    + '<div class="resumen"><p>La cuenta <strong>' + cuenta.nombre.toUpperCase() + '</strong> por un valor de <strong>' + fmtMoney(cuenta.monto) + '</strong><br/>'
+    + 'fue cubierta con <strong>' + transfers.length + ' transferencia' + (transfers.length !== 1 ? 's' : '') + '</strong>'
+    + ' que suman <strong>' + fmtMoney(total) + '</strong></p></div>'
+    + (excedido ? '<div class="excedido-box"><p>\u26a0\ufe0f ATENCI\u00d3N: SE EXCEDI\u00d3 EL MONTO OBJETIVO EN ' + fmtMoney(exceso) + '</p><p style="font-size:13px;font-weight:400;margin-top:6px;color:#b91c1c;">El monto transferido supera el acordado. Contactar al proveedor.</p></div>' : '')
+    + '<div class="stats">'
+    + '<div class="stat"><div class="label">Monto Objetivo</div><div class="value">' + fmtMoney(cuenta.monto) + '</div></div>'
+    + '<div class="stat"><div class="label">Total Transferido</div><div class="value' + (excedido ? ' red' : '') + '">' + fmtMoney(total) + '</div></div>'
+    + '<div class="stat"><div class="label">Comprobantes</div><div class="value">' + cantComp + '</div></div>'
+    + (excedido ? '<div class="stat"><div class="label">Excedente</div><div class="value red">' + fmtMoney(exceso) + '</div></div>' : '')
+    + '</div>'
+    + '<h2>Detalle de Transferencias</h2>'
+    + '<table><thead><tr><th>N\u00b0</th><th>Fecha / Hora</th><th>Monto</th></tr></thead><tbody>'
+    + lista
+    + '<tr class="total-row"><td></td><td>TOTAL</td><td>' + fmtMoney(total) + '</td></tr>'
+    + '</tbody></table>'
+    + '<h2>Comprobantes (' + cantComp + ')</h2>'
+    + (comprobantes || '<p style="color:#aaa;text-align:center;">Sin comprobantes.</p>')
+    + '<div class="footer">Generado: ' + new Date().toLocaleString("es-AR") + '</div>'
     + '</body></html>';
 }
 
@@ -352,6 +425,10 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
     setReportHTML(buildReport(cuenta, transfers));
   }
 
+  function openProviderReport(cuenta, transfers) {
+    setReportHTML(buildProviderReport(cuenta, transfers));
+  }
+
   /* ── Login Screen ── */
   if (!user) {
     return (
@@ -489,13 +566,19 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                 var prog = getProgress(c.id);
                 var pct = c.monto > 0 ? (prog.total / c.monto) * 100 : 0;
                 var done = pct >= 100;
+                var excedido = prog.total > Number(c.monto);
+                var exceso = prog.total - Number(c.monto);
                 return (
-                  <div key={c.id} style={{ ...S.card, borderLeft: "4px solid " + (done ? "#16a34a" : pct > 0 ? "#d97706" : "#e2e8f0") }}>
+                  <div key={c.id} style={{ ...S.card, borderLeft: "4px solid " + (excedido ? "#dc2626" : done ? "#16a34a" : pct > 0 ? "#d97706" : "#e2e8f0") }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 15, fontWeight: 700 }}>{c.nombre}</span>
-                          <span style={S.badge(done ? "g" : pct > 0 ? "y" : "r")}>{done ? "COMPLETO" : pct > 0 ? "EN CURSO" : "PENDIENTE"}</span>
+                          {excedido ? (
+                            <span style={S.badge("r")}>EXCEDIDO +{fmtMoney(exceso)}</span>
+                          ) : (
+                            <span style={S.badge(done ? "g" : pct > 0 ? "y" : "r")}>{done ? "COMPLETO" : pct > 0 ? "EN CURSO" : "PENDIENTE"}</span>
+                          )}
                         </div>
                         {c.alias && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Alias: {c.alias}</div>}
                         {c.prioridad && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{c.prioridad}</div>}
@@ -504,16 +587,22 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                         </div>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: "#E65100" }}>{fmtMoney(prog.total)}</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: excedido ? "#dc2626" : "#E65100" }}>{fmtMoney(prog.total)}</div>
                         <div style={{ fontSize: 12, color: "#64748b" }}>de {fmtMoney(c.monto)}</div>
                       </div>
                     </div>
+                    {excedido && (
+                      <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 12, color: "#991b1b", fontWeight: 600 }}>
+                        ⚠️ Se excedió en {fmtMoney(exceso)} del monto objetivo. Notificar al proveedor.
+                      </div>
+                    )}
                     <PBar pct={pct} />
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, fontSize: 12, color: "#64748b", flexWrap: "wrap", gap: 6 }}>
-                      <span>{prog.transfers.length} transf. — Faltan {fmtMoney(Math.max(c.monto - prog.total, 0))}</span>
+                      <span>{prog.transfers.length} transf.{!excedido && !done ? " — Faltan " + fmtMoney(Math.max(c.monto - prog.total, 0)) : ""}</span>
                       {done && (
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button onClick={function () { openReport(c, prog.transfers); }} style={S.btn("#1a1a1a")}>Ver Reporte</button>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button onClick={function () { openReport(c, prog.transfers); }} style={S.btn("#1a1a1a")}>Reporte Interno</button>
+                          <button onClick={function () { openProviderReport(c, prog.transfers); }} style={S.btn("#E65100")}>Reporte Proveedor</button>
                           <button onClick={function () { archivar(c.id); }} style={S.btn("#16a34a")}>Archivar ✓</button>
                         </div>
                       )}
@@ -681,7 +770,8 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                     <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                       <span style={{ fontSize: 12, color: "#64748b" }}>{(a.transferencias || []).length} transferencias{a.responsable ? " — Cargó: " + a.responsable : ""}</span>
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={function () { openReport(a, a.transferencias || []); }} style={S.btn("#1a1a1a")}>Ver Reporte</button>
+                        <button onClick={function () { openReport(a, a.transferencias || []); }} style={S.btn("#1a1a1a")}>Reporte Interno</button>
+                        <button onClick={function () { openProviderReport(a, a.transferencias || []); }} style={S.btn("#E65100")}>Reporte Proveedor</button>
                         <button onClick={function () { moverAHistorial(a.id); }} style={{ ...S.btn("#16a34a"), display: "flex", alignItems: "center", gap: 4 }}>Historial →</button>
                         <button onClick={function () { deleteArchivada(a.id); }} style={S.btn("#ef4444")}>Eliminar</button>
                       </div>
@@ -737,7 +827,8 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                           <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                             <span style={{ fontSize: 12, color: "#64748b" }}>{(a.transferencias || []).length} transferencias{a.responsable ? " — Cargó: " + a.responsable : ""}</span>
                             <div style={{ display: "flex", gap: 6 }}>
-                              <button onClick={function () { openReport(a, a.transferencias || []); }} style={S.btn("#1a1a1a")}>Ver Reporte</button>
+                              <button onClick={function () { openReport(a, a.transferencias || []); }} style={S.btn("#1a1a1a")}>Reporte Interno</button>
+                              <button onClick={function () { openProviderReport(a, a.transferencias || []); }} style={S.btn("#E65100")}>Reporte Proveedor</button>
                               <button onClick={function () { deleteArchivada(a.id); }} style={S.btn("#ef4444")}>Eliminar</button>
                             </div>
                           </div>
