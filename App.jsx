@@ -183,6 +183,48 @@ function buildProviderReport(cuenta, transfers) {
     + '</body></html>';
 }
 
+/* ── Category/Filtered Report ── */
+function buildFilteredReport(cuentasList, filtroLabel) {
+  var totalObj = cuentasList.reduce(function (s, c) { return s + Number(c.monto); }, 0);
+  var allTransf = cuentasList.reduce(function (arr, c) { return arr.concat(c.transferencias || []); }, []);
+  var totalCub = allTransf.reduce(function (s, t) { return s + Number(t.monto); }, 0);
+  var rows = cuentasList.map(function (c) {
+    var t = (c.transferencias || []).reduce(function (s, t) { return s + Number(t.monto); }, 0);
+    var exc = t > Number(c.monto);
+    return '<tr><td>' + c.nombre + '</td><td>' + (c.categoria || "-") + '</td><td>' + fmtDate(c.fecha_inicio) + '</td><td>' + fmtDate(c.fecha_completa) + '</td><td>' + fmtMoney(c.monto) + '</td><td' + (exc ? ' style="color:#dc2626;font-weight:700"' : '') + '>' + fmtMoney(t) + (exc ? ' ⚠️' : '') + '</td><td>' + (c.transferencias || []).length + '</td></tr>';
+  }).join("");
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte ' + filtroLabel + '</title>'
+    + '<style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;max-width:850px;margin:0 auto;padding:24px;color:#222}'
+    + '.header{background:#1a1a1a;color:#fff;padding:24px;border-radius:12px;margin-bottom:20px}'
+    + '.header h1{margin:0;font-size:20px}.header p{margin:6px 0 0;font-size:13px;opacity:.9}'
+    + '.stats{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}'
+    + '.stat{flex:1;min-width:110px;background:#f8f8f8;border:1px solid #e5e5e5;padding:14px;border-radius:8px;text-align:center}'
+    + '.stat .label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;font-weight:600}'
+    + '.stat .value{font-size:22px;font-weight:700;color:#222;margin-top:3px}'
+    + 'table{width:100%;border-collapse:collapse;margin-bottom:20px}'
+    + 'th{background:#f5f5f5;text-align:left;padding:9px 10px;font-size:11px;text-transform:uppercase;color:#888}'
+    + 'td{padding:9px 10px;border-bottom:1px solid #eee;font-size:12px}'
+    + '.total-row{background:#f5f5f5;font-weight:700}'
+    + '.footer{text-align:center;color:#aaa;font-size:10px;margin-top:28px;padding-top:14px;border-top:1px solid #eee}'
+    + '@media print{body{padding:12px}.no-print{display:none!important}}'
+    + '</style></head><body>'
+    + '<div class="no-print" style="text-align:right;margin-bottom:16px;"><button onclick="window.print()" style="background:#1a1a1a;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;">Imprimir / Guardar PDF</button></div>'
+    + '<div class="header"><h1>REPORTE: ' + filtroLabel.toUpperCase() + '</h1>'
+    + '<p>Generado: ' + new Date().toLocaleString("es-AR") + '</p></div>'
+    + '<div class="stats">'
+    + '<div class="stat"><div class="label">Cuentas</div><div class="value">' + cuentasList.length + '</div></div>'
+    + '<div class="stat"><div class="label">Objetivo Total</div><div class="value">' + fmtMoney(totalObj) + '</div></div>'
+    + '<div class="stat"><div class="label">Total Cubierto</div><div class="value">' + fmtMoney(totalCub) + '</div></div>'
+    + '<div class="stat"><div class="label">Transferencias</div><div class="value">' + allTransf.length + '</div></div>'
+    + '</div>'
+    + '<table><thead><tr><th>Cuenta</th><th>Categoría</th><th>Inicio</th><th>Cubierta</th><th>Objetivo</th><th>Cubierto</th><th>Transf.</th></tr></thead><tbody>'
+    + rows
+    + '<tr class="total-row"><td colspan="4">TOTALES</td><td>' + fmtMoney(totalObj) + '</td><td>' + fmtMoney(totalCub) + '</td><td>' + allTransf.length + '</td></tr>'
+    + '</tbody></table>'
+    + '<div class="footer">Distribuidora Pianyi — Control de Transferencias</div>'
+    + '</body></html>';
+}
+
 /* ── Styles ── */
 const S = {
   app: { fontFamily: "'Segoe UI',Arial,sans-serif", background: "#f1f5f9", minHeight: "100vh", color: "#1e293b" },
@@ -218,12 +260,15 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [addC, setAddC] = useState(false);
   const [addT, setAddT] = useState(false);
-  const [nC, setNC] = useState({ nombre: "", alias: "", monto: "", prioridad: "" });
+  const [nC, setNC] = useState({ nombre: "", alias: "", monto: "", prioridad: "", categoria: "" });
   const [nT, setNT] = useState({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null });
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
   const [reportHTML, setReportHTML] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [filtCat, setFiltCat] = useState("");
+  const [filtDesde, setFiltDesde] = useState("");
+  const [filtHasta, setFiltHasta] = useState("");
   const fileRef = useRef();
 
   /* ── Auth ── */
@@ -273,6 +318,20 @@ export default function App() {
       }
       setArchivadas(archivedWithTransfers);
     }
+    // Auto-archive cuentas cubiertas > 48h
+    if (aRes.data) {
+      var now = new Date();
+      for (var j = 0; j < aRes.data.length; j++) {
+        var ac = aRes.data[j];
+        if (!ac.en_historial && ac.fecha_completa) {
+          var completedAt = new Date(ac.fecha_completa + "T12:00:00");
+          var hoursAgo = (now - completedAt) / (1000 * 60 * 60);
+          if (hoursAgo > 48) {
+            await supabase.from("cuentas").update({ en_historial: true }).eq("id", ac.id);
+          }
+        }
+      }
+    }
     setLoading(false);
   }, [user]);
 
@@ -300,11 +359,12 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
       monto: Number(nC.monto),
       prioridad: nC.prioridad || null,
       responsable: user ? user.nombre : null,
+      categoria: nC.categoria || null,
       fecha_inicio: today(),
       archivada: false
     }).select();
     if (res.data) setCuentas(function (prev) { return [...prev, res.data[0]]; });
-    setNC({ nombre: "", alias: "", monto: "", prioridad: "" });
+    setNC({ nombre: "", alias: "", monto: "", prioridad: "", categoria: "" });
     setAddC(false);
     setSaving(false);
   }
@@ -429,6 +489,11 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
     setReportHTML(buildProviderReport(cuenta, transfers));
   }
 
+  function openFilteredReport() {
+    var label = (filtCat || "Todas las categorías") + (filtDesde || filtHasta ? " (" + (filtDesde || "inicio") + " a " + (filtHasta || "hoy") + ")" : "");
+    setReportHTML(buildFilteredReport(histFiltrado, label));
+  }
+
   /* ── Login Screen ── */
   if (!user) {
     return (
@@ -482,18 +547,60 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
   }
 
   /* ── Computed Values ── */
+  var hoy = today();
+  // Weekly bounds (Monday to Sunday)
+  var nowDate = new Date(hoy + "T12:00:00");
+  var dayOfWeek = nowDate.getDay() || 7; // Sunday=7
+  var mondayDate = new Date(nowDate);
+  mondayDate.setDate(nowDate.getDate() - dayOfWeek + 1);
+  var lunes = mondayDate.toISOString().split("T")[0];
+  var mesActual = hoy.substring(0, 7); // "YYYY-MM"
+
+  // Helper to get all cuentas+archivadas for period stats
+  var todasCuentas = cuentas.concat(archivadas);
+  var todasTransf = transferencias.concat(archivadas.reduce(function (arr, a) { return arr.concat(a.transferencias || []); }, []));
+
+  // Daily
+  var dailyCuentas = todasCuentas.filter(function (c) { return c.fecha_inicio === hoy; });
+  var dailyTransf = todasTransf.filter(function (t) { return t.fecha === hoy; });
+  var dailyObj = dailyCuentas.reduce(function (s, c) { return s + Number(c.monto); }, 0);
+  var dailyCub = dailyTransf.reduce(function (s, t) { return s + Number(t.monto); }, 0);
+  var dailyComp = dailyCuentas.filter(function (c) { return c.fecha_completa; }).length;
+
+  // Weekly
+  var weeklyCuentas = todasCuentas.filter(function (c) { return c.fecha_inicio >= lunes; });
+  var weeklyTransf = todasTransf.filter(function (t) { return t.fecha >= lunes; });
+  var weeklyObj = weeklyCuentas.reduce(function (s, c) { return s + Number(c.monto); }, 0);
+  var weeklyCub = weeklyTransf.reduce(function (s, t) { return s + Number(t.monto); }, 0);
+  var weeklyComp = weeklyCuentas.filter(function (c) { return c.fecha_completa; }).length;
+
+  // Monthly
+  var monthlyCuentas = todasCuentas.filter(function (c) { return (c.fecha_inicio || "").substring(0, 7) === mesActual; });
+  var monthlyTransf = todasTransf.filter(function (t) { return (t.fecha || "").substring(0, 7) === mesActual; });
+  var monthlyObj = monthlyCuentas.reduce(function (s, c) { return s + Number(c.monto); }, 0);
+  var monthlyCub = monthlyTransf.reduce(function (s, t) { return s + Number(t.monto); }, 0);
+  var monthlyComp = monthlyCuentas.filter(function (c) { return c.fecha_completa; }).length;
+
+  // Active dashboard (today only for progress bar)
   var totalObj = cuentas.reduce(function (s, c) { return s + Number(c.monto); }, 0);
   var totalCub = transferencias.reduce(function (s, t) { return s + Number(t.monto); }, 0);
   var totalPct = totalObj > 0 ? (totalCub / totalObj) * 100 : 0;
-  var completadas = cuentas.filter(function (c) { return c.fecha_completa; }).length;
 
   // Split: cubiertas diarias vs historial
   var cubiertas = archivadas.filter(function (a) { return !a.en_historial; });
   var historial = archivadas.filter(function (a) { return a.en_historial; });
 
-  // Group historial by month/year
+  // Filter historial
+  var histFiltrado = historial.filter(function (a) {
+    if (filtCat && a.categoria !== filtCat) return false;
+    if (filtDesde && (a.fecha_completa || a.fecha_inicio) < filtDesde) return false;
+    if (filtHasta && (a.fecha_completa || a.fecha_inicio) > filtHasta) return false;
+    return true;
+  });
+
+  // Group filtered historial by month/year
   var historialByMonth = {};
-  historial.forEach(function (a) {
+  histFiltrado.forEach(function (a) {
     var d = new Date((a.fecha_completa || a.fecha_inicio) + "T12:00:00");
     var key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
     var label = d.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
@@ -542,15 +649,26 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
         {/* ═══ DASHBOARD ═══ */}
         {tab === "dashboard" && (
           <div>
-            <div style={S.kpiRow}>
-              {[["Objetivo", fmtMoney(totalObj)], ["Cubierto", fmtMoney(totalCub)], ["Pendiente", fmtMoney(Math.max(totalObj - totalCub, 0))], ["Transf.", transferencias.length], ["Completas", completadas + "/" + cuentas.length]].map(function (item) {
-                return <div key={item[0]} style={S.kpi}><div style={S.kpiLabel}>{item[0]}</div><div style={S.kpiValue}>{item[1]}</div></div>;
-              })}
-            </div>
+            {[
+              ["Hoy", dailyObj, dailyCub, dailyTransf.length, dailyComp, dailyCuentas.length],
+              ["Esta Semana", weeklyObj, weeklyCub, weeklyTransf.length, weeklyComp, weeklyCuentas.length],
+              ["Este Mes", monthlyObj, monthlyCub, monthlyTransf.length, monthlyComp, monthlyCuentas.length],
+            ].map(function (seg) {
+              return (
+                <div key={seg[0]} style={{ ...S.card, marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#E65100", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>{seg[0]}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {[["Objetivo", fmtMoney(seg[1])], ["Cubierto", fmtMoney(seg[2])], ["Pendiente", fmtMoney(Math.max(seg[1] - seg[2], 0))], ["Transferencias", seg[3]], ["Completadas", seg[4] + "/" + seg[5]]].map(function (k) {
+                      return <div key={k[0]} style={{ flex: "1 1 80px", textAlign: "center", padding: "6px 4px", background: "#f8f8f8", borderRadius: 6 }}><div style={{ fontSize: 9, color: "#888", textTransform: "uppercase", fontWeight: 600 }}>{k[0]}</div><div style={{ fontSize: 16, fontWeight: 700, color: "#1a1a1a", marginTop: 1 }}>{k[1]}</div></div>;
+                    })}
+                  </div>
+                </div>
+              );
+            })}
 
             <div style={S.card}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>Progreso General</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>Progreso Activo</span>
                 <span style={{ fontSize: 13, color: "#64748b" }}>{fmtMoney(totalCub)} / {fmtMoney(totalObj)}</span>
               </div>
               <PBar pct={totalPct} h={30} />
@@ -579,6 +697,7 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                           ) : (
                             <span style={S.badge(done ? "g" : pct > 0 ? "y" : "r")}>{done ? "COMPLETO" : pct > 0 ? "EN CURSO" : "PENDIENTE"}</span>
                           )}
+                          {c.categoria && <span style={{ fontSize: 10, background: "#FFF3E0", color: "#E65100", padding: "1px 7px", borderRadius: 10 }}>{c.categoria}</span>}
                         </div>
                         {c.alias && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Alias: {c.alias}</div>}
                         {c.prioridad && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{c.prioridad}</div>}
@@ -629,6 +748,7 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                   <div><label style={S.label}>Alias</label><input style={S.input} placeholder="Ej: bebida.tele.biblia" value={nC.alias} onChange={function (e) { setNC({ ...nC, alias: e.target.value }); }} /></div>
                   <div><label style={S.label}>Monto Objetivo ($)</label><input type="number" style={S.input} placeholder="500000" value={nC.monto} onChange={function (e) { setNC({ ...nC, monto: e.target.value }); }} /></div>
                   <div><label style={S.label}>Prioridad / Regla</label><input style={S.input} placeholder="Ej: Menores $300.000" value={nC.prioridad} onChange={function (e) { setNC({ ...nC, prioridad: e.target.value }); }} /></div>
+                  <div><label style={S.label}>Categoría</label><select style={S.select} value={nC.categoria} onChange={function (e) { setNC({ ...nC, categoria: e.target.value }); }}><option value="">— Seleccionar —</option><option value="Gasto de Trabajo">Gasto de Trabajo</option><option value="Sueldos/Adelantos">Sueldos/Adelantos</option><option value="Pago a Proveedor">Pago a Proveedor</option><option value="Retiro de Socios">Retiro de Socios</option></select></div>
                 </div>
                 <div style={{ marginTop: 12, textAlign: "right" }}>
                   <button onClick={addCuenta} style={S.btn()} disabled={!nC.nombre || !nC.monto || saving}>{saving ? "Guardando..." : "Guardar"}</button>
@@ -756,6 +876,7 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 15, fontWeight: 700 }}>{a.nombre}</span>
                           <span style={S.badge("g")}>CUBIERTA</span>
+                          {a.categoria && <span style={{ fontSize: 10, background: "#FFF3E0", color: "#E65100", padding: "1px 7px", borderRadius: 10 }}>{a.categoria}</span>}
                         </div>
                         {a.alias && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Alias: {a.alias}</div>}
                         <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
@@ -787,6 +908,38 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
         {tab === "historial" && (
           <div>
             <h2 style={{ margin: "0 0 14px", fontSize: 17, color: "#1a1a1a" }}>Historial de Cuentas Cubiertas</h2>
+
+            <div style={{ ...S.card, border: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#E65100", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Filtros</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                <div>
+                  <label style={S.label}>Categoría</label>
+                  <select style={S.select} value={filtCat} onChange={function (e) { setFiltCat(e.target.value); }}>
+                    <option value="">Todas</option>
+                    <option value="Gasto de Trabajo">Gasto de Trabajo</option>
+                    <option value="Sueldos/Adelantos">Sueldos/Adelantos</option>
+                    <option value="Pago a Proveedor">Pago a Proveedor</option>
+                    <option value="Retiro de Socios">Retiro de Socios</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={S.label}>Desde</label>
+                  <input type="date" style={S.input} value={filtDesde} onChange={function (e) { setFiltDesde(e.target.value); }} />
+                </div>
+                <div>
+                  <label style={S.label}>Hasta</label>
+                  <input type="date" style={S.input} value={filtHasta} onChange={function (e) { setFiltHasta(e.target.value); }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+                <span style={{ fontSize: 12, color: "#64748b" }}>{histFiltrado.length} cuenta{histFiltrado.length !== 1 ? "s" : ""} encontrada{histFiltrado.length !== 1 ? "s" : ""}</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={function () { setFiltCat(""); setFiltDesde(""); setFiltHasta(""); }} style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 8, padding: "8px 14px", fontSize: 12, cursor: "pointer", color: "#64748b" }}>Limpiar</button>
+                  <button onClick={openFilteredReport} disabled={histFiltrado.length === 0} style={S.btn("#1a1a1a")}>Generar Reporte</button>
+                </div>
+              </div>
+            </div>
+
             {histMeses.length === 0 ? (
               <div style={{ ...S.card, textAlign: "center", color: "#94a3b8", padding: 36 }}>
                 <p style={{ margin: "0 0 6px", fontSize: 15 }}>No hay cuentas en el historial</p>
@@ -813,6 +966,7 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <span style={{ fontSize: 15, fontWeight: 700 }}>{a.nombre}</span>
                                 <span style={S.badge("g")}>CUBIERTA</span>
+                                {a.categoria && <span style={{ fontSize: 10, background: "#FFF3E0", color: "#E65100", padding: "1px 7px", borderRadius: 10 }}>{a.categoria}</span>}
                               </div>
                               {a.alias && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Alias: {a.alias}</div>}
                               <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
