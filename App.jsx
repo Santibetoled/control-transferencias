@@ -329,6 +329,14 @@ export default function App() {
     setArchivadas(function (prev) { return prev.filter(function (a) { return a.id !== id; }); });
   }
 
+  /* ── Mover a Historial ── */
+  async function moverAHistorial(id) {
+    await supabase.from("cuentas").update({ en_historial: true }).eq("id", id);
+    setArchivadas(function (prev) {
+      return prev.map(function (a) { return a.id === id ? { ...a, en_historial: true } : a; });
+    });
+  }
+
   /* ── Open Report ── */
   function openReport(cuenta, transfers) {
     setReportHTML(buildReport(cuenta, transfers));
@@ -393,20 +401,27 @@ export default function App() {
   var totalPct = totalObj > 0 ? (totalCub / totalObj) * 100 : 0;
   var completadas = cuentas.filter(function (c) { return c.fecha_completa; }).length;
 
-  // Group archived by fecha_inicio
-  var archivedByDate = {};
-  archivadas.forEach(function (a) {
-    var key = a.fecha_inicio || "sin-fecha";
-    if (!archivedByDate[key]) archivedByDate[key] = [];
-    archivedByDate[key].push(a);
+  // Split: cubiertas diarias vs historial
+  var cubiertas = archivadas.filter(function (a) { return !a.en_historial; });
+  var historial = archivadas.filter(function (a) { return a.en_historial; });
+
+  // Group historial by month/year
+  var historialByMonth = {};
+  historial.forEach(function (a) {
+    var d = new Date((a.fecha_completa || a.fecha_inicio) + "T12:00:00");
+    var key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    var label = d.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+    if (!historialByMonth[key]) historialByMonth[key] = { label: label, items: [] };
+    historialByMonth[key].items.push(a);
   });
-  var archDates = Object.keys(archivedByDate).sort().reverse();
+  var histMeses = Object.keys(historialByMonth).sort().reverse();
 
   var TABS = [
     ["dashboard", "Dashboard"],
     ["cuentas", "Cuentas a Cubrir"],
     ["transferencias", "Transferencias"],
-    ["historial", "Cubiertas (" + archivadas.length + ")"],
+    ["cubiertas", "Cubiertas (" + cubiertas.length + ")"],
+    ["historial", "Historial (" + historial.length + ")"],
   ];
 
   /* ══════════════════════════════════════════ */
@@ -621,24 +636,73 @@ export default function App() {
           </div>
         )}
 
-        {/* ═══ HISTORIAL ═══ */}
-        {tab === "historial" && (
+        {/* ═══ CUBIERTAS DIARIA ═══ */}
+        {tab === "cubiertas" && (
           <div>
-            <h2 style={{ margin: "0 0 14px", fontSize: 17, color: "#1e3a5f" }}>Cuentas Cubiertas — Historial</h2>
-
-            {archDates.length === 0 ? (
+            <h2 style={{ margin: "0 0 14px", fontSize: 17, color: "#1e3a5f" }}>Cubiertas del Día</h2>
+            {cubiertas.length === 0 ? (
               <div style={{ ...S.card, textAlign: "center", color: "#94a3b8", padding: 36 }}>
-                <p style={{ margin: "0 0 6px", fontSize: 15 }}>No hay cuentas archivadas</p>
+                <p style={{ margin: "0 0 6px", fontSize: 15 }}>No hay cuentas cubiertas pendientes</p>
                 <p style={{ fontSize: 13, margin: 0 }}>Cuando una cuenta se completa, archivala desde el Dashboard</p>
               </div>
             ) : (
-              archDates.map(function (date) {
+              cubiertas.map(function (a) {
+                var total = (a.transferencias || []).reduce(function (s, t) { return s + Number(t.monto); }, 0);
                 return (
-                  <div key={date} style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1e3a5f", marginBottom: 10, padding: "8px 14px", background: "#e2e8f0", borderRadius: 8 }}>
-                      Cargadas el {fmtDate(date)}
+                  <div key={a.id} style={{ ...S.card, borderLeft: "4px solid #16a34a" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 6 }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 15, fontWeight: 700 }}>{a.nombre}</span>
+                          <span style={S.badge("g")}>CUBIERTA</span>
+                        </div>
+                        {a.alias && <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Alias: {a.alias}</div>}
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                          Inicio: {fmtDate(a.fecha_inicio)} — Cubierta: {fmtDate(a.fecha_completa)}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 17, fontWeight: 700, color: "#16a34a" }}>{fmtMoney(total)}</div>
+                        <div style={{ fontSize: 12, color: "#64748b" }}>Objetivo: {fmtMoney(a.monto)}</div>
+                      </div>
                     </div>
-                    {archivedByDate[date].map(function (a) {
+                    <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "#64748b" }}>{(a.transferencias || []).length} transferencias{a.responsable ? " — Cargó: " + a.responsable : ""}</span>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={function () { openReport(a, a.transferencias || []); }} style={S.btn("#2563eb")}>Ver Reporte</button>
+                        <button onClick={function () { moverAHistorial(a.id); }} style={{ ...S.btn("#16a34a"), display: "flex", alignItems: "center", gap: 4 }}>Historial →</button>
+                        <button onClick={function () { deleteArchivada(a.id); }} style={S.btn("#ef4444")}>Eliminar</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* ═══ HISTORIAL ═══ */}
+        {tab === "historial" && (
+          <div>
+            <h2 style={{ margin: "0 0 14px", fontSize: 17, color: "#1e3a5f" }}>Historial de Cuentas Cubiertas</h2>
+            {histMeses.length === 0 ? (
+              <div style={{ ...S.card, textAlign: "center", color: "#94a3b8", padding: 36 }}>
+                <p style={{ margin: "0 0 6px", fontSize: 15 }}>No hay cuentas en el historial</p>
+                <p style={{ fontSize: 13, margin: 0 }}>Mové cuentas cubiertas al historial con el botón "Historial →"</p>
+              </div>
+            ) : (
+              histMeses.map(function (mesKey) {
+                var mes = historialByMonth[mesKey];
+                var totalMes = mes.items.reduce(function (s, a) {
+                  return s + (a.transferencias || []).reduce(function (s2, t) { return s2 + Number(t.monto); }, 0);
+                }, 0);
+                return (
+                  <div key={mesKey} style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 10, padding: "10px 16px", background: "linear-gradient(135deg,#1e3a5f,#2d5a8e)", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", textTransform: "capitalize" }}>
+                      <span>{mes.label}</span>
+                      <span style={{ fontSize: 13, opacity: 0.9 }}>{mes.items.length} cuentas — {fmtMoney(totalMes)}</span>
+                    </div>
+                    {mes.items.map(function (a) {
                       var total = (a.transferencias || []).reduce(function (s, t) { return s + Number(t.monto); }, 0);
                       return (
                         <div key={a.id} style={{ ...S.card, borderLeft: "4px solid #16a34a" }}>
