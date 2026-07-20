@@ -581,9 +581,10 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
   var monthlyCub = monthlyTransf.reduce(function (s, t) { return s + Number(t.monto); }, 0);
   var monthlyComp = monthlyCuentas.filter(function (c) { return c.fecha_completa; }).length;
 
-  // Active dashboard (today only for progress bar)
+  // Active dashboard (only active cuentas and their transfers)
+  var activeCuentaIds = cuentas.map(function (c) { return c.id; });
   var totalObj = cuentas.reduce(function (s, c) { return s + Number(c.monto); }, 0);
-  var totalCub = transferencias.reduce(function (s, t) { return s + Number(t.monto); }, 0);
+  var totalCub = transferencias.filter(function (t) { return activeCuentaIds.indexOf(t.cuenta_id) >= 0; }).reduce(function (s, t) { return s + Number(t.monto); }, 0);
   var totalPct = totalObj > 0 ? (totalCub / totalObj) * 100 : 0;
 
   // Split: cubiertas diarias vs historial
