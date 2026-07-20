@@ -136,8 +136,8 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [addC, setAddC] = useState(false);
   const [addT, setAddT] = useState(false);
-  const [nC, setNC] = useState({ nombre: "", alias: "", monto: "", prioridad: "" });
-  const [nT, setNT] = useState({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null });
+  const [nC, setNC] = useState({ nombre: "", alias: "", monto: "", prioridad: "", responsable: "" });
+  const [nT, setNT] = useState({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null, responsable: "" });
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
   const [reportHTML, setReportHTML] = useState(null);
@@ -183,11 +183,12 @@ export default function App() {
       alias: nC.alias || null,
       monto: Number(nC.monto),
       prioridad: nC.prioridad || null,
+      responsable: nC.responsable || null,
       fecha_inicio: today(),
       archivada: false
     }).select();
     if (res.data) setCuentas(function (prev) { return [...prev, res.data[0]]; });
-    setNC({ nombre: "", alias: "", monto: "", prioridad: "" });
+    setNC({ nombre: "", alias: "", monto: "", prioridad: "", responsable: "" });
     setAddC(false);
     setSaving(false);
   }
@@ -222,6 +223,7 @@ export default function App() {
       monto: Number(nT.monto),
       chofer: nT.chofer || null,
       comprobante: nT.comprobante || null,
+      responsable: nT.responsable || null,
       fecha: today()
     }).select();
 
@@ -244,7 +246,7 @@ export default function App() {
         }
       }
     }
-    setNT({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null });
+    setNT({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null, responsable: "" });
     setAddT(false);
     setSaving(false);
     if (fileRef.current) fileRef.current.value = "";
@@ -286,14 +288,17 @@ export default function App() {
     setArchivadas(function (prev) { return [{ ...cuenta, fecha_completa: fechaComp, archivada: true, transferencias: ts }, ...prev]; });
   }
 
+  /* ── Delete Archivada ── */
+  async function deleteArchivada(id) {
+    if (!confirm("¿Eliminar esta cuenta archivada y todos sus comprobantes?")) return;
+    await supabase.from("transferencias").delete().eq("cuenta_id", id);
+    await supabase.from("cuentas").delete().eq("id", id);
+    setArchivadas(function (prev) { return prev.filter(function (a) { return a.id !== id; }); });
+  }
+
   /* ── Open Report ── */
   function openReport(cuenta, transfers) {
-    var html = buildReport(cuenta, transfers);
-    var w = window.open("", "_blank");
-    if (w) {
-      w.document.write(html);
-      w.document.close();
-    }
+    setReportHTML(buildReport(cuenta, transfers));
   }
 
   /* ── Loading State ── */
@@ -301,6 +306,23 @@ export default function App() {
     return (
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh", fontFamily: "Arial" }}>
         <p style={{ color: "#64748b" }}>Cargando datos...</p>
+      </div>
+    );
+  }
+
+  /* ── Report View ── */
+  if (reportHTML) {
+    return (
+      <div style={{ fontFamily: "'Segoe UI',Arial,sans-serif" }}>
+        <style dangerouslySetInnerHTML={{__html: "@media print { .no-print { display: none !important; } }"}} />
+        <div className="no-print" style={{ position: "sticky", top: 0, zIndex: 10, background: "linear-gradient(135deg,#1e3a5f,#2d5a8e)", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Reporte</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={function () { window.print(); }} style={S.btn("#16a34a")}>Imprimir / Guardar PDF</button>
+            <button onClick={function () { setReportHTML(null); }} style={S.btn("rgba(255,255,255,.2)")}>Volver</button>
+          </div>
+        </div>
+        <div dangerouslySetInnerHTML={{ __html: reportHTML }} />
       </div>
     );
   }
@@ -425,6 +447,7 @@ export default function App() {
                   <div><label style={S.label}>Alias</label><input style={S.input} placeholder="Ej: bebida.tele.biblia" value={nC.alias} onChange={function (e) { setNC({ ...nC, alias: e.target.value }); }} /></div>
                   <div><label style={S.label}>Monto Objetivo ($)</label><input type="number" style={S.input} placeholder="500000" value={nC.monto} onChange={function (e) { setNC({ ...nC, monto: e.target.value }); }} /></div>
                   <div><label style={S.label}>Prioridad / Regla</label><input style={S.input} placeholder="Ej: Menores $300.000" value={nC.prioridad} onChange={function (e) { setNC({ ...nC, prioridad: e.target.value }); }} /></div>
+                  <div><label style={S.label}>Responsable</label><input style={S.input} placeholder="Quién carga esta cuenta" value={nC.responsable} onChange={function (e) { setNC({ ...nC, responsable: e.target.value }); }} /></div>
                 </div>
                 <div style={{ marginTop: 12, textAlign: "right" }}>
                   <button onClick={addCuenta} style={S.btn()} disabled={!nC.nombre || !nC.monto || saving}>{saving ? "Guardando..." : "Guardar"}</button>
@@ -481,6 +504,7 @@ export default function App() {
                   <div><label style={S.label}>Cliente / Pedido</label><input style={S.input} placeholder="Ej: Almacén López #142" value={nT.cliente} onChange={function (e) { setNT({ ...nT, cliente: e.target.value }); }} /></div>
                   <div><label style={S.label}>Monto ($)</label><input type="number" style={S.input} placeholder="125000" value={nT.monto} onChange={function (e) { setNT({ ...nT, monto: e.target.value }); }} /></div>
                   <div><label style={S.label}>Chofer / Vehículo</label><input style={S.input} placeholder="Ej: Camión 1 - Marcos" value={nT.chofer} onChange={function (e) { setNT({ ...nT, chofer: e.target.value }); }} /></div>
+                  <div><label style={S.label}>Responsable</label><input style={S.input} placeholder="Quién carga" value={nT.responsable} onChange={function (e) { setNT({ ...nT, responsable: e.target.value }); }} /></div>
                 </div>
                 <div style={{ marginTop: 12 }}>
                   <label style={S.label}>Asignar a cuenta</label>
@@ -522,7 +546,7 @@ export default function App() {
                         <button onClick={function () { deleteTransferencia(t.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", fontSize: 18, lineHeight: 1 }}>×</button>
                       </div>
                       <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
-                        {t.fecha ? fmtDate(t.fecha) + " " : ""}{t.hora ? t.hora + " — " : ""}{t.cliente || "S/C"}{t.chofer ? " — " + t.chofer : ""}
+                        {t.fecha ? fmtDate(t.fecha) + " " : ""}{t.hora ? t.hora + " — " : ""}{t.cliente || "S/C"}{t.chofer ? " — " + t.chofer : ""}{t.responsable ? " — Cargó: " + t.responsable : ""}
                       </div>
                       {cuenta && <div style={{ marginTop: 4 }}><span style={{ fontSize: 11, background: "#eff6ff", color: "#1d4ed8", padding: "2px 8px", borderRadius: 12 }}>→ {cuenta.nombre}</span></div>}
                     </div>
@@ -571,8 +595,11 @@ export default function App() {
                             </div>
                           </div>
                           <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
-                            <span style={{ fontSize: 12, color: "#64748b" }}>{(a.transferencias || []).length} transferencias</span>
-                            <button onClick={function () { openReport(a, a.transferencias || []); }} style={S.btn("#2563eb")}>Ver Reporte</button>
+                            <span style={{ fontSize: 12, color: "#64748b" }}>{(a.transferencias || []).length} transferencias{a.responsable ? " — Cargó: " + a.responsable : ""}</span>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button onClick={function () { openReport(a, a.transferencias || []); }} style={S.btn("#2563eb")}>Ver Reporte</button>
+                              <button onClick={function () { deleteArchivada(a.id); }} style={S.btn("#ef4444")}>Eliminar</button>
+                            </div>
                           </div>
                         </div>
                       );
