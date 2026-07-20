@@ -129,6 +129,10 @@ const S = {
 /* ══  MAIN APP                           ══ */
 /* ══════════════════════════════════════════ */
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [loginForm, setLoginForm] = useState({ usuario: "", contrasena: "" });
+  const [loginError, setLoginError] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
   const [cuentas, setCuentas] = useState([]);
   const [transferencias, setTransferencias] = useState([]);
   const [archivadas, setArchivadas] = useState([]);
@@ -136,16 +140,45 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [addC, setAddC] = useState(false);
   const [addT, setAddT] = useState(false);
-  const [nC, setNC] = useState({ nombre: "", alias: "", monto: "", prioridad: "", responsable: "" });
-  const [nT, setNT] = useState({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null, responsable: "" });
+  const [nC, setNC] = useState({ nombre: "", alias: "", monto: "", prioridad: "" });
+  const [nT, setNT] = useState({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null });
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
   const [reportHTML, setReportHTML] = useState(null);
   const [saving, setSaving] = useState(false);
   const fileRef = useRef();
 
+  /* ── Auth ── */
+  useEffect(function () {
+    try {
+      var saved = localStorage.getItem("ct-user");
+      if (saved) setUser(JSON.parse(saved));
+    } catch (e) {}
+  }, []);
+
+  async function handleLogin() {
+    if (!loginForm.usuario || !loginForm.contrasena) return;
+    setLoggingIn(true);
+    setLoginError("");
+    var res = await supabase.from("usuarios").select("*").eq("usuario", loginForm.usuario).eq("contrasena", loginForm.contrasena).single();
+    if (res.data) {
+      var u = { id: res.data.id, usuario: res.data.usuario, nombre: res.data.nombre_display };
+      setUser(u);
+      try { localStorage.setItem("ct-user", JSON.stringify(u)); } catch (e) {}
+    } else {
+      setLoginError("Usuario o contraseña incorrectos");
+    }
+    setLoggingIn(false);
+  }
+
+  function handleLogout() {
+    setUser(null);
+    try { localStorage.removeItem("ct-user"); } catch (e) {}
+  }
+
   /* ── Load Data ── */
   const loadData = useCallback(async function () {
+    if (!user) { setLoading(false); return; }
     var cRes = await supabase.from("cuentas").select("*").eq("archivada", false).order("created_at");
     var tRes = await supabase.from("transferencias").select("*").order("created_at");
     var aRes = await supabase.from("cuentas").select("*").eq("archivada", true).order("fecha_completa", { ascending: false });
@@ -163,9 +196,9 @@ export default function App() {
       setArchivadas(archivedWithTransfers);
     }
     setLoading(false);
-  }, []);
+  }, [user]);
 
-  useEffect(function () { loadData(); }, [loadData]);
+  useEffect(function () { loadData(); }, [loadData, user]);
 
   /* ── Helpers ── */
   function getProgress(cuentaId) {
@@ -183,12 +216,12 @@ export default function App() {
       alias: nC.alias || null,
       monto: Number(nC.monto),
       prioridad: nC.prioridad || null,
-      responsable: nC.responsable || null,
+      responsable: user ? user.nombre : null,
       fecha_inicio: today(),
       archivada: false
     }).select();
     if (res.data) setCuentas(function (prev) { return [...prev, res.data[0]]; });
-    setNC({ nombre: "", alias: "", monto: "", prioridad: "", responsable: "" });
+    setNC({ nombre: "", alias: "", monto: "", prioridad: "" });
     setAddC(false);
     setSaving(false);
   }
@@ -223,7 +256,7 @@ export default function App() {
       monto: Number(nT.monto),
       chofer: nT.chofer || null,
       comprobante: nT.comprobante || null,
-      responsable: nT.responsable || null,
+      responsable: user ? user.nombre : null,
       fecha: today()
     }).select();
 
@@ -246,7 +279,7 @@ export default function App() {
         }
       }
     }
-    setNT({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null, responsable: "" });
+    setNT({ hora: "", cliente: "", monto: "", chofer: "", cuenta_id: "", comprobante: null });
     setAddT(false);
     setSaving(false);
     if (fileRef.current) fileRef.current.value = "";
@@ -299,6 +332,33 @@ export default function App() {
   /* ── Open Report ── */
   function openReport(cuenta, transfers) {
     setReportHTML(buildReport(cuenta, transfers));
+  }
+
+  /* ── Login Screen ── */
+  if (!user) {
+    return (
+      <div style={{ fontFamily: "'Segoe UI',Arial,sans-serif", background: "#f1f5f9", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div style={{ background: "#fff", borderRadius: 14, padding: 32, width: "100%", maxWidth: 380, boxShadow: "0 4px 20px rgba(0,0,0,.1)" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ background: "linear-gradient(135deg,#1e3a5f,#2d5a8e)", color: "#fff", padding: "16px 20px", borderRadius: 10, marginBottom: 16 }}>
+              <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Control de Transferencias</h1>
+              <p style={{ margin: "4px 0 0", fontSize: 12, opacity: 0.8 }}>Distribuidora</p>
+            </div>
+            <p style={{ color: "#64748b", fontSize: 14, margin: 0 }}>Iniciá sesión para continuar</p>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={S.label}>Usuario</label>
+            <input style={S.input} placeholder="Tu usuario" value={loginForm.usuario} onChange={function (e) { setLoginForm({ ...loginForm, usuario: e.target.value }); }} onKeyDown={function (e) { if (e.key === "Enter") handleLogin(); }} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={S.label}>Contraseña</label>
+            <input type="password" style={S.input} placeholder="Tu contraseña" value={loginForm.contrasena} onChange={function (e) { setLoginForm({ ...loginForm, contrasena: e.target.value }); }} onKeyDown={function (e) { if (e.key === "Enter") handleLogin(); }} />
+          </div>
+          {loginError && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12, textAlign: "center" }}>{loginError}</div>}
+          <button onClick={handleLogin} disabled={loggingIn || !loginForm.usuario || !loginForm.contrasena} style={{ ...S.btn(), width: "100%", padding: 12, fontSize: 15 }}>{loggingIn ? "Ingresando..." : "Ingresar"}</button>
+        </div>
+      </div>
+    );
   }
 
   /* ── Loading State ── */
@@ -355,9 +415,15 @@ export default function App() {
   return (
     <div style={S.app}>
       {/* Header */}
-      <div style={S.hdr}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Control de Transferencias</h1>
-        <p style={{ margin: "4px 0 0", fontSize: 13, opacity: 0.8 }}>Distribuidora — {fmtDate(today())}</p>
+      <div style={{ ...S.hdr, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Control de Transferencias</h1>
+          <p style={{ margin: "4px 0 0", fontSize: 13, opacity: 0.8 }}>Distribuidora — {fmtDate(today())}</p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 13, opacity: 0.9 }}>{user.nombre}</span>
+          <button onClick={handleLogout} style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, cursor: "pointer" }}>Salir</button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -447,7 +513,6 @@ export default function App() {
                   <div><label style={S.label}>Alias</label><input style={S.input} placeholder="Ej: bebida.tele.biblia" value={nC.alias} onChange={function (e) { setNC({ ...nC, alias: e.target.value }); }} /></div>
                   <div><label style={S.label}>Monto Objetivo ($)</label><input type="number" style={S.input} placeholder="500000" value={nC.monto} onChange={function (e) { setNC({ ...nC, monto: e.target.value }); }} /></div>
                   <div><label style={S.label}>Prioridad / Regla</label><input style={S.input} placeholder="Ej: Menores $300.000" value={nC.prioridad} onChange={function (e) { setNC({ ...nC, prioridad: e.target.value }); }} /></div>
-                  <div><label style={S.label}>Responsable</label><input style={S.input} placeholder="Quién carga esta cuenta" value={nC.responsable} onChange={function (e) { setNC({ ...nC, responsable: e.target.value }); }} /></div>
                 </div>
                 <div style={{ marginTop: 12, textAlign: "right" }}>
                   <button onClick={addCuenta} style={S.btn()} disabled={!nC.nombre || !nC.monto || saving}>{saving ? "Guardando..." : "Guardar"}</button>
@@ -504,7 +569,6 @@ export default function App() {
                   <div><label style={S.label}>Cliente / Pedido</label><input style={S.input} placeholder="Ej: Almacén López #142" value={nT.cliente} onChange={function (e) { setNT({ ...nT, cliente: e.target.value }); }} /></div>
                   <div><label style={S.label}>Monto ($)</label><input type="number" style={S.input} placeholder="125000" value={nT.monto} onChange={function (e) { setNT({ ...nT, monto: e.target.value }); }} /></div>
                   <div><label style={S.label}>Chofer / Vehículo</label><input style={S.input} placeholder="Ej: Camión 1 - Marcos" value={nT.chofer} onChange={function (e) { setNT({ ...nT, chofer: e.target.value }); }} /></div>
-                  <div><label style={S.label}>Responsable</label><input style={S.input} placeholder="Quién carga" value={nT.responsable} onChange={function (e) { setNT({ ...nT, responsable: e.target.value }); }} /></div>
                 </div>
                 <div style={{ marginTop: 12 }}>
                   <label style={S.label}>Asignar a cuenta</label>
