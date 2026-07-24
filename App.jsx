@@ -66,7 +66,7 @@ function buildReport(cuenta, transfers) {
       + (t.cliente ? ' <span style="margin-left:12px;">Cliente: ' + t.cliente + '</span>' : '')
       + (t.chofer ? ' <span style="margin-left:12px;">Chofer: ' + t.chofer + '</span>' : '')
       + '</div>'
-      + '<div style="padding:6px 14px 14px;"><img src="' + t.comprobante + '" style="width:100%;border-radius:6px;border:1px solid #e2e8f0;" /></div>'
+      + '<div style="padding:6px 14px 14px;text-align:center;"><img src="' + t.comprobante + '" style="max-width:60%;max-height:520px;width:auto;height:auto;border-radius:6px;border:1px solid #e2e8f0;display:inline-block;" /></div>'
       + '</div>';
   }).join("");
 
@@ -132,7 +132,7 @@ function buildProviderReport(cuenta, transfers) {
       + '<div style="background:#f8f8f8;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e5e5e5;">'
       + '<span style="font-weight:700;font-size:13px;">COMPROBANTE ' + (i + 1) + ' de ' + cantComp + '</span>'
       + '<span style="font-weight:700;font-size:14px;">' + fmtMoney(t.monto) + '</span></div>'
-      + '<div style="padding:6px 14px 14px;"><img src="' + t.comprobante + '" style="width:100%;border-radius:6px;" /></div>'
+      + '<div style="padding:6px 14px 14px;text-align:center;"><img src="' + t.comprobante + '" style="max-width:60%;max-height:520px;width:auto;height:auto;border-radius:6px;display:inline-block;" /></div>'
       + '</div>';
   }).join("");
 
@@ -269,6 +269,8 @@ export default function App() {
   const [filtCat, setFiltCat] = useState("");
   const [filtDesde, setFiltDesde] = useState("");
   const [filtHasta, setFiltHasta] = useState("");
+  const [galSelected, setGalSelected] = useState({});
+  const [galDate, setGalDate] = useState(today());
   const fileRef = useRef();
 
   /* ── Auth ── */
@@ -610,10 +612,68 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
   });
   var histMeses = Object.keys(historialByMonth).sort().reverse();
 
+  // Gallery: all comprobantes for selected date
+  var galAllTransf = transferencias.concat(archivadas.reduce(function (arr, a) { return arr.concat(a.transferencias || []); }, []));
+  var galDayTransf = galAllTransf.filter(function (t) { return t.comprobante && t.fecha === galDate; });
+
+  function toggleGalSelect(id) {
+    setGalSelected(function (prev) {
+      var copy = { ...prev };
+      if (copy[id]) delete copy[id]; else copy[id] = true;
+      return copy;
+    });
+  }
+
+  function selectAllGal() {
+    var all = {};
+    galDayTransf.forEach(function (t) { all[t.id] = true; });
+    setGalSelected(all);
+  }
+
+  function deselectAllGal() { setGalSelected({}); }
+
+  function printGallery4perPage() {
+    var selected = galDayTransf.filter(function (t) { return galSelected[t.id]; });
+    if (selected.length === 0) return;
+
+    var pages = [];
+    for (var i = 0; i < selected.length; i += 4) {
+      var group = selected.slice(i, i + 4);
+      var cells = group.map(function (t) {
+        var cuenta = cuentas.find(function (c) { return c.id === t.cuenta_id; });
+        var cuentaArch = archivadas.find(function (a) { return a.id === t.cuenta_id; });
+        var cuentaNombre = cuenta ? cuenta.nombre : (cuentaArch ? cuentaArch.nombre : "");
+        return '<div style="width:48%;height:48%;border:1px solid #ccc;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;">'
+          + '<div style="background:#f5f5f5;padding:4px 8px;font-size:10px;font-weight:700;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">'
+          + '<span>' + (t.cliente || "S/C") + '</span>'
+          + '<span style="color:#E65100;">' + fmtMoney(t.monto) + '</span></div>'
+          + (cuentaNombre ? '<div style="padding:2px 8px;font-size:9px;color:#666;border-bottom:1px solid #eee;flex-shrink:0;">→ ' + cuentaNombre + '</div>' : '')
+          + '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:4px;overflow:hidden;">'
+          + '<img src="' + t.comprobante + '" style="max-width:100%;max-height:100%;object-fit:contain;" /></div>'
+          + '</div>';
+      }).join("");
+      pages.push('<div style="width:210mm;height:297mm;padding:8mm;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;justify-content:space-between;page-break-after:always;">' + cells + '</div>');
+    }
+
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comprobantes ' + galDate + '</title>'
+      + '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif}'
+      + '@media print{.no-print{display:none!important}}'
+      + '@page{size:A4;margin:0}'
+      + '</style></head><body>'
+      + '<div class="no-print" style="text-align:center;padding:12px;"><button onclick="window.print()" style="background:#E65100;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;">Imprimir</button></div>'
+      + pages.join("")
+      + '</body></html>';
+
+    var w = window.open("", "_blank");
+    w.document.write(html);
+    w.document.close();
+  }
+
   var TABS = [
     ["dashboard", "Dashboard"],
     ["cuentas", "Cuentas a Cubrir"],
     ["transferencias", "Transferencias"],
+    ["galeria", "\uD83D\uDCF7 Galería"],
     ["cubiertas", "Cubiertas (" + cubiertas.length + ")"],
     ["historial", "Historial (" + historial.length + ")"],
   ];
@@ -749,7 +809,7 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                   <div><label style={S.label}>Alias</label><input style={S.input} placeholder="Ej: bebida.tele.biblia" value={nC.alias} onChange={function (e) { setNC({ ...nC, alias: e.target.value }); }} /></div>
                   <div><label style={S.label}>Monto Objetivo ($)</label><input type="number" style={S.input} placeholder="500000" value={nC.monto} onChange={function (e) { setNC({ ...nC, monto: e.target.value }); }} /></div>
                   <div><label style={S.label}>Prioridad / Regla</label><input style={S.input} placeholder="Ej: Menores $300.000" value={nC.prioridad} onChange={function (e) { setNC({ ...nC, prioridad: e.target.value }); }} /></div>
-                  <div><label style={S.label}>Categoría</label><select style={S.select} value={nC.categoria} onChange={function (e) { setNC({ ...nC, categoria: e.target.value }); }}><option value="">— Seleccionar —</option><option value="Gasto de Trabajo">Gasto de Trabajo</option><option value="Sueldos/Adelantos">Sueldos/Adelantos</option><option value="Pago a Proveedor">Pago a Proveedor</option><option value="Retiro de Socios">Retiro de Socios</option></select></div>
+                  <div><label style={S.label}>Categoría</label><select style={S.select} value={nC.categoria} onChange={function (e) { setNC({ ...nC, categoria: e.target.value }); }}><option value="">— Seleccionar —</option><option value="Gasto de Trabajo">Gasto de Trabajo</option><option value="Sueldos/Adelantos">Sueldos/Adelantos</option><option value="Pago a Proveedor">Pago a Proveedor</option><option value="Retiro de Socios">Retiro de Socios</option><option value="Movimiento de Caja">Movimiento de Caja</option></select></div>
                 </div>
                 <div style={{ marginTop: 12, textAlign: "right" }}>
                   <button onClick={addCuenta} style={S.btn()} disabled={!nC.nombre || !nC.monto || saving}>{saving ? "Guardando..." : "Guardar"}</button>
@@ -858,6 +918,63 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
           </div>
         )}
 
+        {/* ═══ GALERÍA DE COMPROBANTES ═══ */}
+        {tab === "galeria" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+              <h2 style={{ margin: 0, fontSize: 17, color: "#1a1a1a" }}>Galería de Comprobantes</h2>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="date" style={{ ...S.input, width: "auto" }} value={galDate} onChange={function (e) { setGalDate(e.target.value); setGalSelected({}); }} />
+              </div>
+            </div>
+
+            {galDayTransf.length === 0 ? (
+              <div style={{ ...S.card, textAlign: "center", color: "#94a3b8", padding: 36 }}>
+                <p style={{ margin: "0 0 6px", fontSize: 15 }}>No hay comprobantes para {fmtDate(galDate)}</p>
+                <p style={{ fontSize: 13, margin: 0 }}>Seleccioná otra fecha o cargá transferencias con foto</p>
+              </div>
+            ) : (
+              <div>
+                <div style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <span style={{ fontSize: 13, color: "#475569" }}>
+                    <strong>{galDayTransf.length}</strong> comprobante{galDayTransf.length !== 1 ? "s" : ""} — <strong>{Object.keys(galSelected).length}</strong> seleccionado{Object.keys(galSelected).length !== 1 ? "s" : ""}
+                  </span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={selectAllGal} style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 8, padding: "8px 14px", fontSize: 12, cursor: "pointer", color: "#475569" }}>Seleccionar todo</button>
+                    <button onClick={deselectAllGal} style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 8, padding: "8px 14px", fontSize: 12, cursor: "pointer", color: "#475569" }}>Deseleccionar</button>
+                    <button onClick={printGallery4perPage} disabled={Object.keys(galSelected).length === 0} style={S.btn("#E65100")}>Imprimir 4/hoja A4 ({Math.ceil(Object.keys(galSelected).length / 4)} pág{Math.ceil(Object.keys(galSelected).length / 4) !== 1 ? "s" : ""})</button>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginTop: 12 }}>
+                  {galDayTransf.map(function (t) {
+                    var isSelected = galSelected[t.id];
+                    var cuenta = cuentas.find(function (c) { return c.id === t.cuenta_id; });
+                    var cuentaArch = archivadas.find(function (a) { return a.id === t.cuenta_id; });
+                    var cuentaNombre = cuenta ? cuenta.nombre : (cuentaArch ? cuentaArch.nombre : "");
+                    return (
+                      <div key={t.id} onClick={function () { toggleGalSelect(t.id); }} style={{ background: "#fff", borderRadius: 10, overflow: "hidden", cursor: "pointer", border: isSelected ? "3px solid #E65100" : "2px solid #e2e8f0", boxShadow: isSelected ? "0 0 0 2px rgba(230,81,0,.25)" : "0 1px 3px rgba(0,0,0,.07)", transition: "all 0.15s" }}>
+                        <div style={{ position: "relative" }}>
+                          <img src={t.comprobante} style={{ width: "100%", height: 200, objectFit: "cover" }} alt="" />
+                          <div style={{ position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%", background: isSelected ? "#E65100" : "rgba(255,255,255,.9)", border: isSelected ? "none" : "2px solid #ccc", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#fff", fontWeight: 700 }}>
+                            {isSelected ? "✓" : ""}
+                          </div>
+                        </div>
+                        <div style={{ padding: "8px 10px" }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#E65100" }}>{fmtMoney(t.monto)}</div>
+                          <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>{t.cliente || "S/C"}{t.hora ? " — " + t.hora : ""}</div>
+                          {cuentaNombre && <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>→ {cuentaNombre}</div>}
+                          {t.chofer && <div style={{ fontSize: 10, color: "#94a3b8" }}>{t.chofer}</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ═══ CUBIERTAS DIARIA ═══ */}
         {tab === "cubiertas" && (
           <div>
@@ -921,6 +1038,7 @@ var LOGO_SMALL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQY
                     <option value="Sueldos/Adelantos">Sueldos/Adelantos</option>
                     <option value="Pago a Proveedor">Pago a Proveedor</option>
                     <option value="Retiro de Socios">Retiro de Socios</option>
+                    <option value="Movimiento de Caja">Movimiento de Caja</option>
                   </select>
                 </div>
                 <div>
